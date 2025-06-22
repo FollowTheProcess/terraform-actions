@@ -1,0 +1,158 @@
+name: Terraform Plan
+description: GitHub Actions to produce a Terraform plan
+author: FollowTheProcess
+
+inputs:
+  terraform-version:
+    description: The version of Terraform to install and run
+    required: false
+    default: latest
+
+  backend-config:
+    description: Optional path to a .tfbackend file (relative to `cwd`) to use for initialisation
+    required: false
+    default: ""
+
+  var-file:
+    description: Optional path to a .tfvars file (relative to `cwd`) to pass to terraform for the plan
+    required: false
+    default: ""
+
+  cwd:
+    description: The working directory to be in for the duration of the action
+    required: false
+    default: "."
+
+outputs:
+  plan-artifact-name:
+    description: The name of the uploaded artifact, can be passed to actions/download-artifact as `name`
+    value: ${{ steps.generate-name.outputs.artifact-name }}
+
+  plan-artifact-id:
+    description: The GitHub ID of the Terraform Plan artifact, can be used by the REST API
+    value: ${{ steps.upload.outputs.artifact-id }}
+
+  plan-download-url:
+    description: The URL to download the produced Terraform Plan
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+  plan-filename:
+    description: The filename of the produced .tfplan file, can be passed to actions/download-artifact as `path`
+    value: ${{ steps.plan.outputs.terraform-plan-file }}
+
+  run-id:
+    description: The ID of the GitHub Actions run publishing the plan, can be used by other actions to retrieve it
+    value: ${{ github.run_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: true
+
+    - name: Create Terraform Cache
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: mkdir --parents ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Cache Terraform
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.terraform.d/plugin-cache
+        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+        restore-keys: |
+          terraform-${{ runner.os }}-
+
+    - name: Initialise Terraform
+      if: inputs.backend-config != ''
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: terraform init -backend-config=${{ inputs.backend-config }}
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Initialise Terraform
+      if: inputs.backend-config == ''
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: terraform init
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Terraform Plan
+      id: plan
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      continue-on-error: true # So we can show the plan even if the exit code is non zero
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+        TERRAFORM_PLAN_FILE: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}.tfplan
+      run: |
+        if [[ "${{ inputs.var-file }}" != "" ]]; then
+          terraform plan -var-file=${{ inputs.var-file }} -detailed-exitcode -out=${{ env.TERRAFORM_PLAN_FILE }}
+        else
+          terraform plan -detailed-exitcode -out=${{ env.TERRAFORM_PLAN_FILE }}
+        fi
+
+        echo "terraform-plan-file=${{ env.TERRAFORM_PLAN_FILE }}"
+        echo "terraform-plan-file=${{ env.TERRAFORM_PLAN_FILE }}" >> $GITHUB_OUTPUT
+
+    - name: Generate Artifact Name
+      id: generate-name
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: |
+        if [[ ${{ inputs.cwd }} == '.' ]]; then
+          echo "artifact-name=terraform-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "artifact-name=terraform-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_OUTPUT
+        else
+          SANITISED_WORKING_DIRECTORY=$(echo ${{ inputs.cwd }} | tr "/" "-")
+          echo "artifact-name=terraform-plan-$SANITISED_WORKING_DIRECTORY-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "artifact-name=terraform-plan-$SANITISED_WORKING_DIRECTORY-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload Plan
+      id: upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.generate-name.outputs.artifact-name }}
+        path: |
+          ${{ inputs.cwd }}/${{ steps.plan.outputs.terraform-plan-file }}
+
+      # The tee /dev/null is a workaround for how NodeJS deals with pipes and large terraform plans
+      # basically we need to "drain" the output of terraform show or Node will report an EPIPE error
+      # because lots of things in GitHub actions are secretly run inside Node
+      # https://stackoverflow.com/questions/12329816/error-write-epipe-when-piping-node-output-to-head
+      #
+      # This step is only run if the detailed exitcode is 2 (which means plan was successful and there were changes)
+    - name: Write Plan to Step Summary
+      if: steps.plan.outputs.exitcode == '2' # https://developer.hashicorp.com/terraform/cli/commands/plan#detailed-exitcode
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: |
+        echo '## Terraform Plan' >> $GITHUB_STEP_SUMMARY
+        echo '```shell' >> $GITHUB_STEP_SUMMARY
+        terraform show -no-color ${{ steps.plan.outputs.terraform-plan-file }} | tee /dev/null | head --bytes 20480  >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "*[Plan will be truncated at 20kb, check logs or download the full plan from the artifact]*" >> $GITHUB_STEP_SUMMARY
+
+    - name: Fail Build if Necessary
+      if: steps.plan.outputs.exitcode == '1'
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: echo "::error::Terraform plan failed, see action logs for details" && exit 1
+
+    - name: Communicate No Changes
+      if: steps.plan.outputs.exitcode == '0'
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: echo "::notice::No Terraform changes in the plan, nothing to show 😴"
