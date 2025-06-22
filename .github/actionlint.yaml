@@ -1,0 +1,5 @@
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - SC2129 # Use { cmd1; cmd2; } >> $FILE instead of individual redirects
+      - SC2086 # Double quote to prevent globbing for word splitting
