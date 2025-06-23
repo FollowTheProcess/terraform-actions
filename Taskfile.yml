@@ -28,3 +28,4 @@ tasks:
         msg: Requires the action-docs CLI, see https://github.com/npalm/action-docs
     cmds:
       - action-docs --update-readme --toc-level 3 --no-banner --source plan/action.yml
+      - action-docs --update-readme --toc-level 3 --no-banner --source apply/action.yml
