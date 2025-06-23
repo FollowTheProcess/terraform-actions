@@ -1,0 +1,101 @@
+name: Terraform Apply
+description: GitHub Actions to apply Terraform infrastructure changes
+author: FollowTheProcess
+
+inputs:
+  terraform-version:
+    description: The version of Terraform to install and run
+    required: false
+    default: latest
+
+  backend-config:
+    description: Optional path to a .tfbackend file (relative to `cwd`) to use for initialisation
+    required: false
+    default: ""
+
+  plan-filename:
+    description: The path to a previously produced terraform plan. Cannot be used with `var-file`
+    required: false
+    default: ""
+
+  var-file:
+    description: The path to a .tfvars file to use for the apply. Cannot be used with `plan-filename`
+    required: false
+    default: ""
+
+  cwd:
+    description: The working directory to be in for the duration of the action
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: true
+
+    - name: Create Terraform Cache
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: mkdir --parents ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Cache Terraform
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.terraform.d/plugin-cache
+        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+        restore-keys: |
+          terraform-${{ runner.os }}-
+
+    - name: Initialise Terraform
+      if: inputs.backend-config != ''
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: terraform init -backend-config=${{ inputs.backend-config }}
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Initialise Terraform
+      if: inputs.backend-config == ''
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: terraform init
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+
+    - name: Terraform Apply
+      if: inputs.plan-filename != ''
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+      run: terraform apply -auto-approve ${{ inputs.plan-filename }}
+
+    - name: Terraform Apply
+      if: ${{ inputs.plan-filename == '' && inputs.var-file != '' }}
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+      run: terraform apply -auto-approve -var-file=${{ inputs.var-file }}
+
+    - name: Terraform Apply
+      if: ${{ inputs.plan-filename == '' && inputs.var-file == '' }}
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        TF_IN_AUTOMATION: true
+        TF_INPUT: false
+        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
+      run: terraform apply -auto-approve
