@@ -122,7 +122,7 @@ runs:
 
     - name: Upload Plan
       id: upload
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: ${{ steps.generate-name.outputs.artifact-name }}
         path: |
