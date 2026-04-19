@@ -102,9 +102,11 @@ runs:
       uses: actions/download-artifact@v8
       with:
         name: ${{ inputs.plan-artifact-name }}
-        # path: omitted on purpose — defaults to $GITHUB_WORKSPACE so the artifact's
-        # internal path (e.g. `prod/<sha>.tfplan` when plan ran with cwd=prod) lands
-        # at the right place relative to cwd.
+        # Land the artifact contents inside `cwd`. upload-artifact uses the least
+        # common ancestor of its `path:` inputs as the artifact root, so when plan
+        # uploads `<cwd>/<file>.tfplan` the artifact contains a flat `<file>.tfplan`.
+        # Downloading to `cwd` puts the file back where the resolver expects it.
+        path: ${{ inputs.cwd }}
 
     - name: Resolve Apply Args
       id: resolve
