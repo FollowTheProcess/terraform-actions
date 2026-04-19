@@ -13,13 +13,24 @@ inputs:
     required: false
     default: ""
 
+  plan-artifact-name:
+    description: |
+      Name of a plan artifact (produced by the `plan` action in an earlier job) to download and apply.
+      This is the recommended way to chain plan → apply across jobs.
+      Mutually exclusive with `plan-filename` and `var-file`.
+    required: false
+    default: ""
+
   plan-filename:
-    description: The path to a previously produced terraform plan. Cannot be used with `var-file`
+    description: |
+      Path to a previously produced terraform plan file that is already present on disk in `cwd`
+      (e.g. because you downloaded the artifact yourself). For the cross-job case prefer `plan-artifact-name`.
+      Mutually exclusive with `plan-artifact-name` and `var-file`.
     required: false
     default: ""
 
   var-file:
-    description: The path to a .tfvars file to use for the apply. Cannot be used with `plan-filename`
+    description: The path to a .tfvars file to use for the apply. Mutually exclusive with `plan-artifact-name` and `plan-filename`.
     required: false
     default: ""
 
@@ -31,6 +42,22 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate Inputs
+      shell: bash
+      env:
+        PLAN_ARTIFACT_NAME: ${{ inputs.plan-artifact-name }}
+        PLAN_FILENAME:      ${{ inputs.plan-filename }}
+        VAR_FILE:           ${{ inputs.var-file }}
+      run: |
+        set_count=0
+        [[ -n "$PLAN_ARTIFACT_NAME" ]] && set_count=$((set_count + 1))
+        [[ -n "$PLAN_FILENAME" ]]      && set_count=$((set_count + 1))
+        [[ -n "$VAR_FILE" ]]           && set_count=$((set_count + 1))
+        if (( set_count > 1 )); then
+          echo "::error::At most one of plan-artifact-name, plan-filename, var-file may be set (got $set_count)"
+          exit 1
+        fi
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v4
       with:
@@ -70,32 +97,48 @@ runs:
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
-    - name: Terraform Apply
-      if: inputs.plan-filename != ''
+    - name: Download Plan Artifact
+      if: inputs.plan-artifact-name != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.plan-artifact-name }}
+        # path: omitted on purpose — defaults to $GITHUB_WORKSPACE so the artifact's
+        # internal path (e.g. `prod/<sha>.tfplan` when plan ran with cwd=prod) lands
+        # at the right place relative to cwd.
+
+    - name: Resolve Apply Args
+      id: resolve
       shell: bash
       working-directory: ${{ inputs.cwd }}
       env:
-        TF_IN_AUTOMATION: true
-        TF_INPUT: false
-        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
-      run: terraform apply -auto-approve ${{ inputs.plan-filename }}
+        PLAN_ARTIFACT_NAME: ${{ inputs.plan-artifact-name }}
+        PLAN_FILENAME:      ${{ inputs.plan-filename }}
+        VAR_FILE:           ${{ inputs.var-file }}
+      run: |
+        if [[ -n "$PLAN_ARTIFACT_NAME" ]]; then
+          mapfile -t plans < <(find . -maxdepth 2 -name '*.tfplan' -type f)
+          if (( ${#plans[@]} == 0 )); then
+            echo "::error::plan-artifact-name '$PLAN_ARTIFACT_NAME' contained no .tfplan file"
+            exit 1
+          fi
+          if (( ${#plans[@]} > 1 )); then
+            echo "::warning::multiple .tfplan files found, using ${plans[0]}"
+          fi
+          echo "args=${plans[0]}" >> "$GITHUB_OUTPUT"
+        elif [[ -n "$PLAN_FILENAME" ]]; then
+          echo "args=$PLAN_FILENAME" >> "$GITHUB_OUTPUT"
+        elif [[ -n "$VAR_FILE" ]]; then
+          echo "args=-var-file=$VAR_FILE" >> "$GITHUB_OUTPUT"
+        else
+          echo "args=" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Terraform Apply
-      if: ${{ inputs.plan-filename == '' && inputs.var-file != '' }}
       shell: bash
       working-directory: ${{ inputs.cwd }}
       env:
         TF_IN_AUTOMATION: true
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
-      run: terraform apply -auto-approve -var-file=${{ inputs.var-file }}
-
-    - name: Terraform Apply
-      if: ${{ inputs.plan-filename == '' && inputs.var-file == '' }}
-      shell: bash
-      working-directory: ${{ inputs.cwd }}
-      env:
-        TF_IN_AUTOMATION: true
-        TF_INPUT: false
-        TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
-      run: terraform apply -auto-approve
+        APPLY_ARGS: ${{ steps.resolve.outputs.args }}
+      run: terraform apply -auto-approve $APPLY_ARGS  # shellcheck disable=SC2086
