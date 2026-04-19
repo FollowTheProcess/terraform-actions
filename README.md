@@ -31,22 +31,22 @@ GitHub Actions to produce a Terraform plan
 
 ### Inputs
 
-| name                | description                                                                                             | required | default  |
-| ------------------- | ------------------------------------------------------------------------------------------------------- | -------- | -------- |
-| `terraform-version` | <p>The version of Terraform to install and run</p>                                                      | `false`  | `latest` |
-| `backend-config`    | <p>Optional path to a .tfbackend file (relative to <code>cwd</code>) to use for initialisation</p>      | `false`  | `""`     |
-| `var-file`          | <p>Optional path to a .tfvars file (relative to <code>cwd</code>) to pass to terraform for the plan</p> | `false`  | `""`     |
-| `cwd`               | <p>The working directory to be in for the duration of the action</p>                                    | `false`  | `.`      |
+| name | description | required | default |
+| --- | --- | --- | --- |
+| `terraform-version` | <p>The version of Terraform to install and run</p> | `false` | `latest` |
+| `backend-config` | <p>Optional path to a .tfbackend file (relative to <code>cwd</code>) to use for initialisation</p> | `false` | `""` |
+| `var-file` | <p>Optional path to a .tfvars file (relative to <code>cwd</code>) to pass to terraform for the plan</p> | `false` | `""` |
+| `cwd` | <p>The working directory to be in for the duration of the action</p> | `false` | `.` |
 
 ### Outputs
 
-| name                 | description                                                                                                       |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `plan-artifact-name` | <p>The name of the uploaded artifact, can be passed to actions/download-artifact as <code>name</code></p>         |
-| `plan-artifact-id`   | <p>The GitHub ID of the Terraform Plan artifact, can be used by the REST API</p>                                  |
-| `plan-download-url`  | <p>The URL to download the produced Terraform Plan</p>                                                            |
-| `plan-filename`      | <p>The filename of the produced .tfplan file, can be passed to actions/download-artifact as <code>path</code></p> |
-| `run-id`             | <p>The ID of the GitHub Actions run publishing the plan, can be used by other actions to retrieve it</p>          |
+| name | description |
+| --- | --- |
+| `plan-artifact-name` | <p>The name of the uploaded artifact, can be passed to actions/download-artifact as <code>name</code></p> |
+| `plan-artifact-id` | <p>The GitHub ID of the Terraform Plan artifact, can be used by the REST API</p> |
+| `plan-download-url` | <p>The URL to download the produced Terraform Plan</p> |
+| `plan-filename` | <p>The filename of the produced .tfplan file, can be passed to actions/download-artifact as <code>path</code></p> |
+| `run-id` | <p>The ID of the GitHub Actions run publishing the plan, can be used by other actions to retrieve it</p> |
 
 ### Runs
 
@@ -81,6 +81,7 @@ This action is a `composite` action.
     # Required: false
     # Default: .
 ```
+
 <!-- action-docs-all source="plan/action.yml" project="FollowTheProcess/terraform-actions/plan" version="v1" -->
 
 ## Apply
@@ -94,13 +95,14 @@ GitHub Actions to apply Terraform infrastructure changes
 
 ### Inputs
 
-| name                | description                                                                                            | required | default  |
-| ------------------- | ------------------------------------------------------------------------------------------------------ | -------- | -------- |
-| `terraform-version` | <p>The version of Terraform to install and run</p>                                                     | `false`  | `latest` |
-| `backend-config`    | <p>Optional path to a .tfbackend file (relative to <code>cwd</code>) to use for initialisation</p>     | `false`  | `""`     |
-| `plan-filename`     | <p>The path to a previously produced terraform plan. Cannot be used with <code>var-file</code></p>     | `false`  | `""`     |
-| `var-file`          | <p>The path to a .tfvars file to use for the apply. Cannot be used with <code>plan-filename</code></p> | `false`  | `""`     |
-| `cwd`               | <p>The working directory to be in for the duration of the action</p>                                   | `false`  | `.`      |
+| name | description | required | default |
+| --- | --- | --- | --- |
+| `terraform-version` | <p>The version of Terraform to install and run</p> | `false` | `latest` |
+| `backend-config` | <p>Optional path to a .tfbackend file (relative to <code>cwd</code>) to use for initialisation</p> | `false` | `""` |
+| `plan-artifact-name` | <p>Name of a plan artifact (produced by the <code>plan</code> action in an earlier job) to download and apply. This is the recommended way to chain plan → apply across jobs. Mutually exclusive with <code>plan-filename</code> and <code>var-file</code>.</p> | `false` | `""` |
+| `plan-filename` | <p>Path to a previously produced terraform plan file that is already present on disk in <code>cwd</code> (e.g. because you downloaded the artifact yourself). For the cross-job case prefer <code>plan-artifact-name</code>. Mutually exclusive with <code>plan-artifact-name</code> and <code>var-file</code>.</p> | `false` | `""` |
+| `var-file` | <p>The path to a .tfvars file to use for the apply. Mutually exclusive with <code>plan-artifact-name</code> and <code>plan-filename</code>.</p> | `false` | `""` |
+| `cwd` | <p>The working directory to be in for the duration of the action</p> | `false` | `.` |
 
 ### Runs
 
@@ -123,14 +125,24 @@ This action is a `composite` action.
     # Required: false
     # Default: ""
 
+    plan-artifact-name:
+    # Name of a plan artifact (produced by the `plan` action in an earlier job) to download and apply.
+    # This is the recommended way to chain plan → apply across jobs.
+    # Mutually exclusive with `plan-filename` and `var-file`.
+    #
+    # Required: false
+    # Default: ""
+
     plan-filename:
-    # The path to a previously produced terraform plan. Cannot be used with `var-file`
+    # Path to a previously produced terraform plan file that is already present on disk in `cwd`
+    # (e.g. because you downloaded the artifact yourself). For the cross-job case prefer `plan-artifact-name`.
+    # Mutually exclusive with `plan-artifact-name` and `var-file`.
     #
     # Required: false
     # Default: ""
 
     var-file:
-    # The path to a .tfvars file to use for the apply. Cannot be used with `plan-filename`
+    # The path to a .tfvars file to use for the apply. Mutually exclusive with `plan-artifact-name` and `plan-filename`.
     #
     # Required: false
     # Default: ""
@@ -141,4 +153,5 @@ This action is a `composite` action.
     # Required: false
     # Default: .
 ```
+
 <!-- action-docs-all source="apply/action.yml" project="FollowTheProcess/terraform-actions/apply" version="v1" -->
