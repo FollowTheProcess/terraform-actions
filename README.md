@@ -36,7 +36,9 @@ GitHub Actions to produce a Terraform plan
 | `terraform-version` | <p>The version of Terraform to install and run</p> | `false` | `latest` |
 | `backend-config` | <p>Optional path to a .tfbackend file (relative to <code>cwd</code>) to use for initialisation</p> | `false` | `""` |
 | `var-file` | <p>Optional path to a .tfvars file (relative to <code>cwd</code>) to pass to terraform for the plan</p> | `false` | `""` |
+| `plan-artifact-name` | <p>Explicit name for the uploaded plan artifact. When empty (the default), the name is auto-generated from <code>cwd</code>, <code>github.sha</code>, <code>github.run_id</code>, and <code>github.run_attempt</code>. Pass this when you want a deterministic, caller-controlled artifact name — typically to keep plan → apply wiring simple inside matrix jobs, where passing <code>needs.&lt;job&gt;.outputs.*</code> between matrix entries is awkward. The matching <code>apply</code> action already accepts <code>plan-artifact-name</code> as an input.</p> | `false` | `""` |
 | `cwd` | <p>The working directory to be in for the duration of the action</p> | `false` | `.` |
+
 
 ### Outputs
 
@@ -47,6 +49,7 @@ GitHub Actions to produce a Terraform plan
 | `plan-download-url` | <p>The URL to download the produced Terraform Plan</p> |
 | `plan-filename` | <p>The filename of the produced .tfplan file, can be passed to actions/download-artifact as <code>path</code></p> |
 | `run-id` | <p>The ID of the GitHub Actions run publishing the plan, can be used by other actions to retrieve it</p> |
+
 
 ### Runs
 
@@ -75,13 +78,22 @@ This action is a `composite` action.
     # Required: false
     # Default: ""
 
+    plan-artifact-name:
+    # Explicit name for the uploaded plan artifact. When empty (the default), the name is auto-generated
+    # from `cwd`, `github.sha`, `github.run_id`, and `github.run_attempt`.
+    # Pass this when you want a deterministic, caller-controlled artifact name — typically to keep plan → apply
+    # wiring simple inside matrix jobs, where passing `needs.<job>.outputs.*` between matrix entries is awkward.
+    # The matching `apply` action already accepts `plan-artifact-name` as an input.
+    #
+    # Required: false
+    # Default: ""
+
     cwd:
     # The working directory to be in for the duration of the action
     #
     # Required: false
     # Default: .
 ```
-
 <!-- action-docs-all source="plan/action.yml" project="FollowTheProcess/terraform-actions/plan" version="v1" -->
 
 ## Apply
@@ -103,6 +115,7 @@ GitHub Actions to apply Terraform infrastructure changes
 | `plan-filename` | <p>Path to a previously produced terraform plan file that is already present on disk in <code>cwd</code> (e.g. because you downloaded the artifact yourself). For the cross-job case prefer <code>plan-artifact-name</code>. Mutually exclusive with <code>plan-artifact-name</code> and <code>var-file</code>.</p> | `false` | `""` |
 | `var-file` | <p>The path to a .tfvars file to use for the apply. Mutually exclusive with <code>plan-artifact-name</code> and <code>plan-filename</code>.</p> | `false` | `""` |
 | `cwd` | <p>The working directory to be in for the duration of the action</p> | `false` | `.` |
+
 
 ### Runs
 
@@ -153,5 +166,4 @@ This action is a `composite` action.
     # Required: false
     # Default: .
 ```
-
 <!-- action-docs-all source="apply/action.yml" project="FollowTheProcess/terraform-actions/apply" version="v1" -->

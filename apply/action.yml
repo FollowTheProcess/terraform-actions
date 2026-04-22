@@ -46,8 +46,8 @@ runs:
       shell: bash
       env:
         PLAN_ARTIFACT_NAME: ${{ inputs.plan-artifact-name }}
-        PLAN_FILENAME:      ${{ inputs.plan-filename }}
-        VAR_FILE:           ${{ inputs.var-file }}
+        PLAN_FILENAME: ${{ inputs.plan-filename }}
+        VAR_FILE: ${{ inputs.var-file }}
       run: |
         set_count=0
         [[ -n "$PLAN_ARTIFACT_NAME" ]] && set_count=$((set_count + 1))
@@ -69,8 +69,9 @@ runs:
       working-directory: ${{ inputs.cwd }}
       run: mkdir --parents ${{ github.workspace }}/.terraform.d/plugin-cache
 
-    - name: Cache Terraform
-      uses: actions/cache@v5
+    - name: Restore Terraform Cache
+      id: cache-restore
+      uses: actions/cache/restore@v5
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
         key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
@@ -97,6 +98,17 @@ runs:
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
+    # Save the populated plugin cache only on non-PR events (typically push to the default branch).
+    # Skipping on PRs avoids lengthy uploads from per-PR runs that rarely benefit future runs.
+    # Also skip if the primary cache key was already a hit so nothing new to save.
+    - name: Save Terraform Cache
+      if: github.event_name != 'pull_request' && steps.cache-restore.outputs.cache-hit
+        != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/.terraform.d/plugin-cache
+        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+
     - name: Download Plan Artifact
       if: inputs.plan-artifact-name != ''
       uses: actions/download-artifact@v8
@@ -114,8 +126,8 @@ runs:
       working-directory: ${{ inputs.cwd }}
       env:
         PLAN_ARTIFACT_NAME: ${{ inputs.plan-artifact-name }}
-        PLAN_FILENAME:      ${{ inputs.plan-filename }}
-        VAR_FILE:           ${{ inputs.var-file }}
+        PLAN_FILENAME: ${{ inputs.plan-filename }}
+        VAR_FILE: ${{ inputs.var-file }}
       run: |
         if [[ -n "$PLAN_ARTIFACT_NAME" ]]; then
           mapfile -t plans < <(find . -maxdepth 2 -name '*.tfplan' -type f)
@@ -143,4 +155,4 @@ runs:
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
         APPLY_ARGS: ${{ steps.resolve.outputs.args }}
-      run: terraform apply -auto-approve $APPLY_ARGS  # shellcheck disable=SC2086
+      run: terraform apply -auto-approve $APPLY_ARGS
