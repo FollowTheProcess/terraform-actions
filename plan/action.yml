@@ -14,7 +14,17 @@ inputs:
     default: ""
 
   var-file:
-    description: Optional path to a .tfvars file (relative to `cwd`) to pass to terraform for the plan
+    description: Optional path to a .tfvars file (relative to `cwd`) to pass to
+      terraform for the plan
+    required: false
+    default: ""
+
+  plan-artifact-name:
+    description: |
+      Explicit name for the uploaded plan artifact. When empty (the default), the name is auto-generated
+      from `cwd`, `github.sha`, `github.run_id`, and `github.run_attempt`.
+      Pass this when you want a deterministic, caller-controlled artifact name, typically to keep plan → apply
+      wiring simple inside matrix jobs, where passing `needs.<job>.outputs.*` between matrix entries is awkward.
     required: false
     default: ""
 
@@ -58,8 +68,9 @@ runs:
       working-directory: ${{ inputs.cwd }}
       run: mkdir --parents ${{ github.workspace }}/.terraform.d/plugin-cache
 
-    - name: Cache Terraform
-      uses: actions/cache@v5
+    - name: Restore Terraform Cache
+      id: cache-restore
+      uses: actions/cache/restore@v5
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
         key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
@@ -86,6 +97,17 @@ runs:
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
+    # Save the populated plugin cache only on non-PR events (typically push to the default branch).
+    # Skipping on PRs avoids lengthy uploads from per-PR runs that rarely benefit future runs.
+    # Also skip if the primary cache key was already a hit so nothing new to save.
+    - name: Save Terraform Cache
+      if: github.event_name != 'pull_request' && steps.cache-restore.outputs.cache-hit
+        != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ github.workspace }}/.terraform.d/plugin-cache
+        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+
     - name: Terraform Plan
       id: plan
       shell: bash
@@ -110,15 +132,19 @@ runs:
       id: generate-name
       shell: bash
       working-directory: ${{ inputs.cwd }}
+      env:
+        EXPLICIT_NAME: ${{ inputs.plan-artifact-name }}
       run: |
-        if [[ ${{ inputs.cwd }} == '.' ]]; then
-          echo "artifact-name=terraform-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "artifact-name=terraform-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_OUTPUT
+        if [[ -n "$EXPLICIT_NAME" ]]; then
+          name="$EXPLICIT_NAME"
+        elif [[ ${{ inputs.cwd }} == '.' ]]; then
+          name="terraform-plan-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
         else
           SANITISED_WORKING_DIRECTORY=$(echo ${{ inputs.cwd }} | tr "/" "-")
-          echo "artifact-name=terraform-plan-$SANITISED_WORKING_DIRECTORY-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "artifact-name=terraform-plan-$SANITISED_WORKING_DIRECTORY-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_OUTPUT
+          name="terraform-plan-$SANITISED_WORKING_DIRECTORY-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
         fi
+        echo "artifact-name=$name"
+        echo "artifact-name=$name" >> "$GITHUB_OUTPUT"
 
     - name: Upload Plan
       id: upload
