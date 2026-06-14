@@ -64,19 +64,30 @@ runs:
         terraform_version: ${{ inputs.terraform-version }}
         terraform_wrapper: true
 
+    - name: Compute Provider Cache Key
+      id: cache-key
+      shell: bash
+      run: |
+        lock="${{ inputs.cwd }}/.terraform.lock.hcl"
+        if [[ ! -f "$lock" ]]; then
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::No .terraform.lock.hcl in '${{ inputs.cwd }}', provider cache disabled"
+          exit 0
+        fi
+        echo "enabled=true" >> "$GITHUB_OUTPUT"
+        echo "key=terraform-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.cwd)) }}" >> "$GITHUB_OUTPUT"
+
     - name: Create Terraform Cache
       shell: bash
-      working-directory: ${{ inputs.cwd }}
       run: mkdir --parents ${{ github.workspace }}/.terraform.d/plugin-cache
 
     - name: Restore Terraform Cache
       id: cache-restore
+      if: steps.cache-key.outputs.enabled == 'true'
       uses: actions/cache/restore@v5
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
-        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
-        restore-keys: |
-          terraform-${{ runner.os }}-
+        key: ${{ steps.cache-key.outputs.key }}
 
     - name: Initialise Terraform
       if: inputs.backend-config != ''
@@ -98,16 +109,21 @@ runs:
         TF_INPUT: false
         TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
-    # Save the populated plugin cache only on non-PR events (typically push to the default branch).
-    # Skipping on PRs avoids lengthy uploads from per-PR runs that rarely benefit future runs.
-    # Also skip if the primary cache key was already a hit so nothing new to save.
+    # Save only on non-PR events (typically push to the default branch). GitHub scopes caches
+    # by branch: a cache created on a PR branch is visible only to that same PR, so saving there
+    # writes a throwaway cache that main and other PRs can never read. Saving on the default
+    # branch is what makes the cache reusable across every later run.
+    # Skip when the primary key was an exact hit (nothing new to save). The save reuses the
+    # restore step's primary key so it always matches the key the next run will look up.
     - name: Save Terraform Cache
-      if: github.event_name != 'pull_request' && steps.cache-restore.outputs.cache-hit
-        != 'true'
+      if: >-
+        steps.cache-key.outputs.enabled == 'true' &&
+        github.event_name != 'pull_request' &&
+        steps.cache-restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@v5
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
-        key: terraform-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+        key: ${{ steps.cache-restore.outputs.cache-primary-key }}
 
     - name: Download Plan Artifact
       if: inputs.plan-artifact-name != ''
