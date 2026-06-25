@@ -83,7 +83,7 @@ runs:
     - name: Restore Terraform Cache
       id: cache-restore
       if: steps.cache-key.outputs.enabled == 'true'
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v6
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
         key: ${{ steps.cache-key.outputs.key }}
@@ -119,7 +119,7 @@ runs:
         steps.cache-key.outputs.enabled == 'true' &&
         github.event_name != 'pull_request' &&
         steps.cache-restore.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@v6
       with:
         path: ${{ github.workspace }}/.terraform.d/plugin-cache
         key: ${{ steps.cache-restore.outputs.cache-primary-key }}
